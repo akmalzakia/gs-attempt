@@ -69,6 +69,8 @@ def training(
         max_steps=opt_params.iterations,
     )
 
+    viewpoint_stack = scene.getTrainCameras().copy()
+
     
 
 
