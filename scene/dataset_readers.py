@@ -28,6 +28,7 @@ class CameraInfo(NamedTuple):
     depth_params: dict
     image_path: str
     image_name: str
+    depth_path: str
     width: int
     height: int
     is_test: bool
@@ -35,8 +36,8 @@ class CameraInfo(NamedTuple):
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
-    train_cameras: list
-    test_cameras: list
+    train_cameras: list[CameraInfo]
+    test_cameras: list[CameraInfo]
     nerf_normalization: dict
     ply_path: str
     is_nerf_synthetic: bool
@@ -72,7 +73,7 @@ def readColmapCameras(
     images_folder,
     depths_folder,
     test_cam_names_list,
-):
+) -> list[CameraInfo]:
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write("/r")
@@ -98,9 +99,9 @@ def readColmapCameras(
             FovY = focal2fov(focal_length_y, height)
             FovX = focal2fov(focal_length_x, width)
         else:
-            assert False, (
-                "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
-            )
+            assert (
+                False
+            ), "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
         n_remove = len(extr.name.split(".")[-1]) + 1
         depth_params = None
@@ -230,7 +231,7 @@ def readColmapSceneInfo(
         test_cam_names_list = []
 
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted = readColmapCameras(
+    cam_infos_unsorted: list[CameraInfo] = readColmapCameras(
         cam_extrinsics=cam_extrinsics,
         cam_instrinsics=cam_intrinsics,
         depth_params=depths_params,
@@ -283,7 +284,7 @@ def readCamerasFromTransforms(
     white_background: bool,
     is_test: bool,
     extension=".png",
-):
+) -> list[CameraInfo]:
     cam_infos = []
 
     with open(os.path.join(path, transformsfile)) as json_file:

@@ -24,7 +24,7 @@ class Camera(nn.Module):
         trans=np.array([0.0, 0.0, 0.0]),
         scale=1.0,
         data_device="cuda",
-        train_text_exp=False,
+        train_test_exp=False,
         is_test_dataset=False,
         is_test_view=False,
     ):
@@ -60,6 +60,12 @@ class Camera(nn.Module):
             self.alpha_mask = torch.ones_like(resized_image_rgb[0:1, ...]).to(
                 self.data_device
             )
+
+        if train_test_exp and is_test_view:
+            if is_test_dataset:
+                self.alpha_mask[..., : self.alpha_mask.shape[-1] // 2] = 0
+            else:
+                self.alpha_mask[..., self.alpha_mask.shape[-1] // 2 :] = 0
 
         self.original_image = gt_image.clamp(0.0, 1.0).to(self.data_device)
         self.image_width = self.original_image.shape[2]
@@ -119,9 +125,19 @@ class Camera(nn.Module):
 
 
 class MiniCam:
-    def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
+    def __init__(
+        self,
+        width,
+        height,
+        fovy,
+        fovx,
+        znear,
+        zfar,
+        world_view_transform,
+        full_proj_transform,
+    ):
         self.image_width = width
-        self.image_height = height    
+        self.image_height = height
         self.FoVy = fovy
         self.FoVx = fovx
         self.znear = znear
