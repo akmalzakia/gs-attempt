@@ -1,6 +1,8 @@
-from argparse import ArgumentParser
+from argparse import ArgumentParser, Namespace
 from dataclasses import dataclass
+from html import parser
 import os
+import sys
 
 
 # TODO: Try to move these into dataclass later
@@ -44,16 +46,16 @@ class ParamGroup:
 
 @dataclass
 class ExtractedModelParams:
-    sh_degree = 3
-    source_path = ""
-    model_path = ""
-    images = "images"
-    depths = ""
-    resolution = -1
-    white_background = False
-    train_text_exp = False
-    data_device = "cuda"
-    eval = False
+    sh_degree: int = 3
+    source_path: str = ""
+    model_path: str = ""
+    images: str = "images"
+    depths: str = ""
+    resolution: int = -1
+    white_background: bool = False
+    train_test_exp: bool = False
+    data_device: str = "cuda"
+    eval: bool = False
 
 
 class ModelParams(ParamGroup):
@@ -65,7 +67,7 @@ class ModelParams(ParamGroup):
         self._depths = ""
         self._resolution = -1
         self._white_background = False
-        self.train_text_exp = False
+        self.train_test_exp = False
         self.data_device = "cuda"
         self.eval = False
         super().__init__(parser, "Loading Parameters", sentinel)
@@ -80,7 +82,7 @@ class ModelParams(ParamGroup):
             depths=g.depths,
             resolution=g.resolution,
             white_background=g.white_background,
-            train_text_exp=g.train_text_exp,
+            train_test_exp=g.train_test_exp,
             data_device=g.data_device,
             eval=g.eval,
         )
@@ -126,4 +128,23 @@ class OptimizationParams(ParamGroup):
 
 
 def get_combined_args():
-    pass
+    cmdlne_string = sys.argv[1:]
+    cfgfile_string = "Namespace()"
+    args_cmdline = parser.parse_args(cmdlne_string)
+
+    try:
+        cfgfilepath = os.path.join(args_cmdline.model_path, "cfg_args")
+        print("Looking for config file in", cfgfilepath)
+        with open(cfgfilepath) as cfg_file:
+            print("Config file found: {}".format(cfgfilepath))
+            cfgfile_string = cfg_file.read()
+    except TypeError:
+        print("Config file not found at")
+        pass
+    args_cfgfile = eval(cfgfile_string)
+
+    merged_dict = vars(args_cfgfile).copy()
+    for k,v in vars(args_cmdline).items():
+        if v != None:
+            merged_dict[k] = v
+    return Namespace(**merged_dict)

@@ -3,7 +3,7 @@ import os
 from PIL import Image
 from pathlib import Path
 import sys
-from typing import Callable, NamedTuple, TypedDict
+from typing import Callable, List, NamedTuple, TypedDict
 from plyfile import PlyData, PlyElement
 import numpy as np
 
@@ -36,8 +36,8 @@ class CameraInfo(NamedTuple):
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
-    train_cameras: list[CameraInfo]
-    test_cameras: list[CameraInfo]
+    train_cameras: List[CameraInfo]
+    test_cameras: List[CameraInfo]
     nerf_normalization: dict
     ply_path: str
     is_nerf_synthetic: bool
@@ -73,10 +73,10 @@ def readColmapCameras(
     images_folder,
     depths_folder,
     test_cam_names_list,
-) -> list[CameraInfo]:
+) -> List[CameraInfo]:
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
-        sys.stdout.write("/r")
+        sys.stdout.write("\r")
         sys.stdout.write(f"Reading camera {idx + 1}/{len(cam_extrinsics)}")
         sys.stdout.flush()
 
@@ -231,9 +231,9 @@ def readColmapSceneInfo(
         test_cam_names_list = []
 
     reading_dir = "images" if images == None else images
-    cam_infos_unsorted: list[CameraInfo] = readColmapCameras(
+    cam_infos_unsorted: List[CameraInfo] = readColmapCameras(
         cam_extrinsics=cam_extrinsics,
-        cam_instrinsics=cam_intrinsics,
+        cam_intrinsics=cam_intrinsics,
         depth_params=depths_params,
         images_folder=os.path.join(path, reading_dir),
         depths_folder=os.path.join(path, depths) if depths != "" else "",
@@ -284,7 +284,7 @@ def readCamerasFromTransforms(
     white_background: bool,
     is_test: bool,
     extension=".png",
-) -> list[CameraInfo]:
+) -> List[CameraInfo]:
     cam_infos = []
 
     with open(os.path.join(path, transformsfile)) as json_file:

@@ -13,7 +13,7 @@ class BasicPointCloud():
 def getWorld2View(R: np.ndarray, t: np.ndarray):
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = R.transpose()
-    Rt[:3, :3] = t
+    Rt[:3, 3] = t
     Rt[3, 3] = 1.0
     return np.float32(Rt)
 

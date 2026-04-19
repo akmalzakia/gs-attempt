@@ -5,9 +5,9 @@ import random
 from arguments import ExtractedModelParams
 from scene.cameras import Camera
 from scene.gaussian_model import GaussianModel
+from scene.dataset_readers import readColmapSceneInfo, readNerfSyntheticInfo
 from utils.camera import camera_to_JSON, cameraList_from_camInfos
 from utils.system import searchForMaxIteration
-from dataset_readers import readColmapSceneInfo, sceneLoadTypeCallbacks
 
 
 class Scene:
@@ -25,12 +25,13 @@ class Scene:
         self.loaded_iter = None
         self.gaussians = gaussians
 
-        if load_iteration == -1:
-            self.loaded_iter = searchForMaxIteration(
-                os.path.join(self.model_path, "point_cloud")
-            )
-        else:
-            self.loaded_iter = load_iteration
+        if load_iteration:
+            if load_iteration == -1:
+                self.loaded_iter = searchForMaxIteration(
+                    os.path.join(self.model_path, "point_cloud")
+                )
+            else:
+                self.loaded_iter = load_iteration
             print(f"Loading trained model at iteration {self.loaded_iter}")
 
         self.train_cameras: dict[float, list[Camera]] = {}
@@ -46,7 +47,7 @@ class Scene:
             )
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
-            scene_info = sceneLoadTypeCallbacks["blender"](
+            scene_info = readNerfSyntheticInfo(
                 args.source_path, args.white_background, args.depths, args.eval
             )
         else:
@@ -73,7 +74,7 @@ class Scene:
             random.shuffle(scene_info.train_cameras)
             random.shuffle(scene_info.test_cameras)
 
-        self.camera_extent = scene_info.nerf_normalization["radius"]
+        self.cameras_extent = scene_info.nerf_normalization["radius"]
 
         for resolution_scale in resolution_scales:
             print("Loading Training Cameras")
@@ -99,15 +100,15 @@ class Scene:
                     self.model_path, "point_cloud", "iteration_" + str(self.loaded_iter)
                 ),
                 "point_cloud.ply",
-                args.train_text_exp,
+                args.train_test_exp,
             )
         else:
             self.gaussians.create_from_pcd(
-                scene_info.point_cloud, scene_info.train_cameras, self.camera_extent
+                scene_info.point_cloud, scene_info.train_cameras, self.cameras_extent
             )
 
     def getTrainCameras(self, scale=1.0):
         return self.train_cameras[scale]
-    
+
     def getTestCameras(self, scale=1.0):
         return self.test_cameras[scale]

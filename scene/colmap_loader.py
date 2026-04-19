@@ -5,11 +5,11 @@ import struct
 
 import numpy as np
 
-from scene.cameras import Camera
-
 CameraModel = collections.namedtuple(
     "CameraModel", ["model_id", "model_name", "num_params"]
 )
+
+Camera = collections.namedtuple("Camera", ["id", "model", "width", "height", "params"])
 
 BaseImage = collections.namedtuple(
     "image", ["id", "qvec", "tvec", "camera_id", "name", "xys", "point3D_ids"]
@@ -216,7 +216,6 @@ def read_points3D_binary(path_to_model_file):
         void Reconstruction::WritePoints3DBinary(const std::string& path)
     """
 
-
     with open(path_to_model_file, "rb") as fid:
         num_points = read_next_bytes(fid, 8, "Q")[0]
 
@@ -226,19 +225,24 @@ def read_points3D_binary(path_to_model_file):
 
         for p_id in range(num_points):
             binary_point_line_properties = read_next_bytes(
-                fid, num_bytes=43, format_char_sequence="QdddBBBd")
+                fid, num_bytes=43, format_char_sequence="QdddBBBd"
+            )
             xyz = np.array(binary_point_line_properties[1:4])
             rgb = np.array(binary_point_line_properties[4:7])
             error = np.array(binary_point_line_properties[7])
-            track_length = read_next_bytes(
-                fid, num_bytes=8, format_char_sequence="Q")[0]
+            track_length = read_next_bytes(fid, num_bytes=8, format_char_sequence="Q")[
+                0
+            ]
             track_elems = read_next_bytes(
-                fid, num_bytes=8*track_length,
-                format_char_sequence="ii"*track_length)
+                fid,
+                num_bytes=8 * track_length,
+                format_char_sequence="ii" * track_length,
+            )
             xyzs[p_id] = xyz
             rgbs[p_id] = rgb
             errors[p_id] = error
     return xyzs, rgbs, errors
+
 
 def read_points3D_text(path):
     """
@@ -258,7 +262,6 @@ def read_points3D_text(path):
             line = line.strip()
             if len(line) > 0 and line[0] != "#":
                 num_points += 1
-
 
     xyzs = np.empty((num_points, 3))
     rgbs = np.empty((num_points, 3))

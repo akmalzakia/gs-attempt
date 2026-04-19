@@ -5,7 +5,7 @@ import sys
 import uuid
 
 import torch
-import tqdm
+from tqdm import tqdm
 
 from arguments import (
     ExtractedModelParams,
@@ -17,6 +17,7 @@ from gaussian_renderer import network_gui, render
 from scene import Scene
 from scene.gaussian_model import GaussianModel
 from utils.general import get_expon_lr_func, safe_state
+from utils.image import psnr
 from utils.loss import l1_loss, ssim
 
 try:
@@ -90,9 +91,9 @@ def training(
     )
     first_iter += 1
     for iteration in range(first_iter, opt_params.iterations + 1):
-        if network_gui.conn == None:
+        if network_gui.conn is None:
             network_gui.try_connect()
-        while network_gui.conn != None:
+        while network_gui.conn is not None:
             try:
                 net_image_bytes = None
                 (
@@ -103,7 +104,7 @@ def training(
                     keep_alive,
                     scaling_modifier,
                 ) = network_gui.receive()
-                if custom_cam != None:
+                if custom_cam is not None:
                     net_image = render(
                         custom_cam,
                         gaussians,
@@ -111,7 +112,7 @@ def training(
                         background,
                         scaling_modifier,
                         SPARSE_ADAM_AVAILABLE,
-                        use_trained_exp=train_params.train_text_exp,
+                        use_trained_exp=train_params.train_test_exp,
                     )["render"]
                     net_image_bytes = memoryview(
                         (torch.clamp(net_image, min=0, max=1.0) * 255)
@@ -129,65 +130,158 @@ def training(
             except Exception as e:
                 network_gui.conn = None
 
-    iter_start.record()
+        iter_start.record()
 
-    gaussians.update_learning_rate(iteration)
+        gaussians.update_learning_rate(iteration)
 
-    if iteration % 1000 == 0:
-        gaussians.oneupSHdegree()
+        if iteration % 1000 == 0:
+            gaussians.oneupSHdegree()
 
-    if not viewpoint_stack:
-        viewpoint_stack = scene.getTrainCameras().copy()
-        viewpoint_indices = list(range(len(viewpoint_stack)))
-    rand_idx = randint(0, len(viewpoint_indices) - 1)
-    viewpoint_cam = viewpoint_stack.pop(rand_idx)
-    vind = viewpoint_indices.pop(rand_idx)
+        if not viewpoint_stack:
+            viewpoint_stack = scene.getTrainCameras().copy()
+            viewpoint_indices = list(range(len(viewpoint_stack)))
+        rand_idx = randint(0, len(viewpoint_indices) - 1)
+        viewpoint_cam = viewpoint_stack.pop(rand_idx)
+        vind = viewpoint_indices.pop(rand_idx)
 
-    if iteration - 1 == debug_from:
-        pipe_params.debug = True
+        if iteration - 1 == debug_from:
+            pipe_params.debug = True
 
-    bg = torch.rand((3), device="cuda") if opt_params.random_background else background
+        bg = (
+            torch.rand((3), device="cuda")
+            if opt_params.random_background
+            else background
+        )
 
-    render_pkg = render(
-        viewpoint_cam,
-        gaussians,
-        pipe_params,
-        bg,
-        use_trained_exp=train_params.train_text_exp,
-        separate_sh=SPARSE_ADAM_AVAILABLE,
-    )
-    image, viewspace_point_tensor, visibility_filter, radii = (
-        render_pkg.render,
-        render_pkg.viewspace_points,
-        render_pkg.visibility_filter,
-        render_pkg.radii,
-    )
+        render_pkg = render(
+            viewpoint_cam,
+            gaussians,
+            pipe_params,
+            bg,
+            use_trained_exp=train_params.train_test_exp,
+            separate_sh=SPARSE_ADAM_AVAILABLE,
+        )
+        image, viewspace_point_tensor, visibility_filter, radii = (
+            render_pkg.render,
+            render_pkg.viewspace_points,
+            render_pkg.visibility_filter,
+            render_pkg.radii,
+        )
 
-    gt_image = viewpoint_cam.original_image.cuda()
-    Ll1 = l1_loss(image, gt_image)
-    if FUSED_SSIM_AVAILABLE:
-        ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
-    else:
-        ssim_value = ssim(image, gt_image)
+        gt_image = viewpoint_cam.original_image.cuda()
+        Ll1 = l1_loss(image, gt_image)
+        if FUSED_SSIM_AVAILABLE:
+            ssim_value = fused_ssim(image.unsqueeze(0), gt_image.unsqueeze(0))
+        else:
+            ssim_value = ssim(image, gt_image)
 
-    loss = (1.0 - opt_params.lambda_dssim) * Ll1 + opt_params.lambda_dssim * (
-        1.0 - ssim_value
-    )
+        loss = (1.0 - opt_params.lambda_dssim) * Ll1 + opt_params.lambda_dssim * (
+            1.0 - ssim_value
+        )
 
-    Ll1depth_pure = 0.0
-    if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
-        invDepth = render_pkg.depth
-        mono_invdepth = viewpoint_cam.invdepthmap.cuda()
-        depth_mask = viewpoint_cam.depth_mask.cuda()
+        Ll1depth_pure = 0.0
+        if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
+            invDepth = render_pkg.depth
+            mono_invdepth = viewpoint_cam.invdepthmap.cuda()
+            depth_mask = viewpoint_cam.depth_mask.cuda()
 
-        Ll1depth_pure = torch.abs((invDepth - mono_invdepth) * depth_mask).mean()
-        Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure
-        loss += Ll1depth
-        Ll1depth = Ll1depth.item()
-    else:
-        Ll1depth = 0
+            Ll1depth_pure = torch.abs((invDepth - mono_invdepth) * depth_mask).mean()
+            Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure
+            loss += Ll1depth
+            Ll1depth = Ll1depth.item()
+        else:
+            Ll1depth = 0
 
-    loss.backward()
+        loss.backward()
+
+        iter_end.record()
+
+        with torch.no_grad():
+            ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
+            ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+
+            if iteration % 10 == 0:
+                progress_bar.set_postfix(
+                    {
+                        "Loss": f"{ema_loss_for_log:.{7}f}",
+                        "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}",
+                    }
+                )
+                progress_bar.update(10)
+            if iteration == opt_params.iterations:
+                progress_bar.close()
+
+            training_report(
+                tb_writer,
+                iteration,
+                Ll1,
+                loss,
+                l1_loss,
+                iter_start.elapsed_time(iter_end),
+                testing_iterations,
+                scene,
+                render,
+                (
+                    pipe_params,
+                    background,
+                    1.0,
+                    SPARSE_ADAM_AVAILABLE,
+                    None,
+                    train_params.train_test_exp,
+                ),
+                train_params.train_test_exp,
+            )
+            if iteration in saving_iterations:
+                print(f"\n[ITER {iteration}] Saving Gaussians")
+                scene.save(iteration)
+
+            if iteration < opt_params.densify_until_iter:
+                gaussians.max_radii2D[visibility_filter] = torch.max(
+                    gaussians.max_radii2D[visibility_filter], radii[visibility_filter]
+                )
+                gaussians.add_densification_stats(
+                    viewspace_point_tensor, visibility_filter
+                )
+
+                if (
+                    iteration > opt_params.densify_from_iter
+                    and iteration % opt_params.densification_interval == 0
+                ):
+                    size_threshold = (
+                        20 if iteration > opt_params.opacity_reset_interval else None
+                    )
+                    gaussians.densify_and_prune(
+                        opt_params.densify_grad_threshold,
+                        5e-3,
+                        scene.cameras_extent,
+                        size_threshold,
+                        radii,
+                    )
+
+                if iteration % opt_params.opacity_reset_interval == 0 or (
+                    train_params.white_background
+                    and iteration == opt_params.densify_from_iter
+                ):
+                    gaussians.reset_opacity()
+
+            if iteration < opt_params.iterations:
+                gaussians.exposure_optimizer.step()
+                gaussians.exposure_optimizer.zero_grad(set_to_none=True)
+
+                if use_sparse_adam:
+                    visible = radii > 0
+                    gaussians.optimizer.step(visible, radii.shape[0])
+                else:
+                    gaussians.optimizer.step()
+
+                gaussians.optimizer.zero_grad(set_to_none=True)
+
+            if iteration in checkpoint_iterations:
+                print(f"[ITER {iteration}] Saving Checkpoint")
+                torch.save(
+                    (gaussians.capture(), iteration),
+                    scene.model_path + "/chkpnt" + str(iteration) + ".pth",
+                )
 
 
 def prepare_output_and_logger(args: ExtractedModelParams):
@@ -210,6 +304,91 @@ def prepare_output_and_logger(args: ExtractedModelParams):
     else:
         print("Tensorboard not available: not logging progress")
     return tb_writer
+
+
+def training_report(
+    tb_writer,
+    iteration: int,
+    Ll1: torch.Tensor,
+    loss: torch.Tensor,
+    l1_loss,
+    elapsed: float,
+    testing_iterations,
+    scene: Scene,
+    renderFunc,
+    renderArgs,
+    train_test_exp: bool,
+):
+    if tb_writer:
+        tb_writer.add_scalar("train_loss_patches/l1_loss", Ll1.item(), iteration)
+        tb_writer.add_scalar("train_loss_patches/total_loss", loss.item(), iteration)
+        tb_writer.add_scalar("iter_time", elapsed, iteration)
+
+    if iteration in testing_iterations:
+        torch.cuda.empty_cache()
+        validation_configs = (
+            {"name": "test", "cameras": scene.getTestCameras()},
+            {
+                "name": "train",
+                "cameras": [
+                    scene.getTrainCameras()[idx % len(scene.getTrainCameras())]
+                    for idx in range(5, 30, 5)
+                ],
+            },
+        )
+
+        for config in validation_configs:
+            if config["cameras"] and len(config["cameras"]) > 0:
+                l1_test = 0.0
+                psnr_test = 0.0
+                for idx, viewpoint in enumerate(config["cameras"]):
+                    image = torch.clamp(
+                        renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"],
+                        0.0,
+                        1.0,
+                    )
+                    gt_image = torch.clamp(
+                        viewpoint.original_image.to("cuda"), 0.0, 1.0
+                    )
+                    if train_test_exp:
+                        image = image[..., image.shape[-1] // 2 :]
+                        gt_image = gt_image[..., gt_image.shape[-1] // 2 :]
+                    if tb_writer and (idx < 5):
+                        tb_writer.add_images(
+                            config["name"] + f"_view_{viewpoint.image_name}/render",
+                            image[None],
+                            global_step=iteration,
+                        )
+                        if iteration == testing_iterations[0]:
+                            tb_writer.add_images(
+                                config["name"]
+                                + f"_view_{viewpoint.image_name}/ground_truth",
+                                gt_image[None],
+                                global_step=iteration,
+                            )
+                    l1_test += l1_loss(image, gt_image).mean().double()
+                    psnr_test += psnr(image, gt_image).mean().double()
+                psnr_test /= len(config["cameras"])
+                l1_test /= len(config["cameras"])
+                print(
+                    f"\n[ITER {iteration}] Evaluating {config['name']}: L1 {l1_test} PSNR {psnr_test}"
+                )
+                if tb_writer:
+                    tb_writer.add_scalar(
+                        config["name"] + "/loss_viewpoint - l1_loss", l1_test, iteration
+                    )
+                    tb_writer.add_scalar(
+                        config["name"] + "/loss_viewpoint - psnr", psnr_test, iteration
+                    )
+
+        if tb_writer:
+            tb_writer.add_histogram(
+                "scene/opacity_histogram", scene.gaussians.get_opacity, iteration
+            )
+            tb_writer.add_scalar(
+                "total_points", scene.gaussians.get_xyz.shape[0], iteration
+            )
+        torch.cuda.empty_cache()
 
 
 if __name__ == "__main__":
@@ -252,3 +431,5 @@ if __name__ == "__main__":
         args.start_checkpoint,
         args.debug_from,
     )
+
+    print("\nTraining complete.")

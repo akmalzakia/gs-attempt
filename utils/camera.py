@@ -1,3 +1,5 @@
+from typing import List
+
 import cv2
 import numpy as np
 
@@ -93,7 +95,7 @@ def cameraList_from_camInfos(
     args: ExtractedModelParams,
     is_nerf_synthetic: bool,
     is_test_dataset: bool,
-) -> list[Camera]:
+) -> List[Camera]:
     camera_list = []
 
     for id, c in enumerate(cam_infos):
@@ -104,7 +106,7 @@ def cameraList_from_camInfos(
     return camera_list
 
 
-def camera_to_JSON(id, camera: Camera):
+def camera_to_JSON(id, camera: CameraInfo):
     Rt = np.zeros((4, 4))
     Rt[:3, :3] = camera.R.transpose()
     Rt[:3, 3] = camera.T
@@ -117,12 +119,12 @@ def camera_to_JSON(id, camera: Camera):
     camera_entry = {
         "id": id,
         "img_name": camera.image_name,
-        "width": camera.image_width,
-        "height": camera.image_height,
+        "width": camera.width,
+        "height": camera.height,
         "position": pos.tolist(),
         "rotation": serializable_array_2d,
-        "fy": fov2focal(camera.FoVy, camera.image_height),
-        "fx": fov2focal(camera.FoVx, camera.image_width),
+        "fy": fov2focal(camera.FovY, camera.height),
+        "fx": fov2focal(camera.FovX, camera.width),
     }
 
     return camera_entry

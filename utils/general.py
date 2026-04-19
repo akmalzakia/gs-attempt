@@ -1,8 +1,9 @@
 from datetime import datetime
 import random
 import sys
+import typing
 
-from PIL.ImageFile import ImageFile
+import PIL.ImageFile
 import torch
 import numpy as np
 
@@ -12,7 +13,7 @@ def inverse_sigmoid(x):
 
 
 # Convert H, W, C to C, W, H format
-def PILtoTorch(pil_image: ImageFile, resolution: tuple[int, int]):
+def PILtoTorch(pil_image: PIL.ImageFile.ImageFile, resolution: typing.Tuple[int, int]):
     resized_image_PIL = pil_image.resize(resolution)
     resized_image = torch.from_numpy(np.array(resized_image_PIL)) / 255.0
     if len(resized_image.shape) == 3:
@@ -107,7 +108,7 @@ def safe_state(silent):
                     old_f.write(
                         x.replace(
                             "\n",
-                            f" [{str(datetime.now().strftime("%d/%m %H:%M:%S"))}]\n",
+                            f" [{str(datetime.now().strftime('%d/%m %H:%M:%S'))}]\n",
                         )
                     )
                 else:

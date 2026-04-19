@@ -1,5 +1,5 @@
 import math
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import torch
 
@@ -23,7 +23,7 @@ class RenderOutput(NamedTuple):
 
 
 def render(
-    viewpoint_camera: MiniCam | Camera,
+    viewpoint_camera: Union[MiniCam, Camera],
     pc: GaussianModel,
     pipe: PipelineParams,
     bg_color: torch.Tensor,
