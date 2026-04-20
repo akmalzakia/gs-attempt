@@ -18,7 +18,7 @@ from scene import Scene
 from scene.gaussian_model import GaussianModel
 from utils.general import get_expon_lr_func, safe_state
 from utils.image import psnr
-from utils.loss import l1_loss, ssim
+from utils.loss import l1_loss, ssim, edge_loss
 
 try:
     from torch.utils.tensorboard import SummaryWriter
@@ -80,11 +80,17 @@ def training(
         opt_params.depth_l1_weight_final,
         max_steps=opt_params.iterations,
     )
+    edge_l1_weight = get_expon_lr_func(
+        opt_params.edge_l1_weight_init,
+        opt_params.edge_l1_weight_final,
+        max_steps=opt_params.iterations,
+    )
 
     viewpoint_stack = scene.getTrainCameras().copy()
     viewpoint_indices = list(range(len(viewpoint_stack)))
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
+    ema_Ledge_for_log = 0.0
 
     progress_bar = tqdm(
         range(first_iter, opt_params.iterations), desc="Training progress"
@@ -179,6 +185,10 @@ def training(
             1.0 - ssim_value
         )
 
+        Ledge_pure = edge_loss(image, gt_image)
+        Ledge = edge_l1_weight(iteration) * Ledge_pure
+        loss += Ledge
+
         Ll1depth_pure = 0.0
         if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
             invDepth = render_pkg.depth
@@ -199,17 +209,22 @@ def training(
         with torch.no_grad():
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+            ema_Ledge_for_log = 0.4 * Ledge.item() + 0.6 * ema_Ledge_for_log
 
             if iteration % 10 == 0:
                 progress_bar.set_postfix(
                     {
                         "Loss": f"{ema_loss_for_log:.{7}f}",
                         "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}",
+                        "Edge Loss": f"{ema_Ledge_for_log:.{7}f}",
                     }
                 )
                 progress_bar.update(10)
             if iteration == opt_params.iterations:
                 progress_bar.close()
+            
+            if tb_writer:
+                tb_writer.add_scalar('train_loss_patches/edge_loss', Ledge.item(), iteration)
 
             training_report(
                 tb_writer,

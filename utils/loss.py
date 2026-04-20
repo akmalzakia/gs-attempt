@@ -72,3 +72,33 @@ def ssim(img1: torch.Tensor, img2: torch.Tensor, windows_size=11, size_average=T
     window = window.type_as(img1)
 
     return _ssim(img1, img2, window, windows_size, channel, size_average)
+
+def get_image_gradients(image):
+    if image.dim() == 3:
+        image = image.unsqueeze(0) # (1, C, H, W)
+        
+    C = image.shape[1]
+    if C == 3:
+        weights = torch.tensor([0.299, 0.587, 0.114], device=image.device).view(1, 3, 1, 1)
+        image = (image * weights).sum(dim=1, keepdim=True)
+    
+    # Now image has 1 channel
+    sobel_x = torch.tensor([[-1., 0., 1.], [-2., 0., 2.], [-1., 0., 1.]], dtype=torch.float32, device=image.device)
+    sobel_y = torch.tensor([[-1., -2., -1.], [0., 0., 0.], [1., 2., 1.]], dtype=torch.float32, device=image.device)
+    
+    sobel_x = sobel_x.view(1, 1, 3, 3)
+    sobel_y = sobel_y.view(1, 1, 3, 3)
+    
+    grad_x = F.conv2d(image, sobel_x, padding=1)
+    grad_y = F.conv2d(image, sobel_y, padding=1)
+    
+    return grad_x, grad_y
+
+def edge_loss(network_output, gt):
+    network_grad_x, network_grad_y = get_image_gradients(network_output)
+    gt_grad_x, gt_grad_y = get_image_gradients(gt)
+    
+    loss_x = l1_loss(network_grad_x, gt_grad_x)
+    loss_y = l1_loss(network_grad_y, gt_grad_y)
+    
+    return (loss_x + loss_y) / 2.0
