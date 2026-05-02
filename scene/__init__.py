@@ -1,6 +1,7 @@
 import json
 import os
 import random
+from typing import List
 
 from arguments import ExtractedModelParams
 from scene.cameras import Camera
@@ -34,8 +35,8 @@ class Scene:
                 self.loaded_iter = load_iteration
             print(f"Loading trained model at iteration {self.loaded_iter}")
 
-        self.train_cameras: dict[float, list[Camera]] = {}
-        self.test_cameras: dict[float, list[Camera]] = {}
+        self.train_cameras: dict[float, List[Camera]] = {}
+        self.test_cameras: dict[float, List[Camera]] = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = readColmapSceneInfo(
