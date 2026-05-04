@@ -94,11 +94,15 @@ def get_image_gradients(image):
     
     return grad_x, grad_y
 
-def edge_loss(network_output, gt):
+def edge_loss(network_output, gt, steepness=15, tau=0.3):
     network_grad_x, network_grad_y = get_image_gradients(network_output)
     gt_grad_x, gt_grad_y = get_image_gradients(gt)
+
+    gt_magnitude = torch.sqrt(gt_grad_x**2 + gt_grad_y**2 + 1e-6)
+
+    edge_mask = torch.sigmoid(steepness * (gt_magnitude - tau))
     
-    loss_x = l1_loss(network_grad_x, gt_grad_x)
-    loss_y = l1_loss(network_grad_y, gt_grad_y)
+    loss_x = l1_loss(network_grad_x, gt_grad_x, w=edge_mask)
+    loss_y = l1_loss(network_grad_y, gt_grad_y, w=edge_mask)
     
     return (loss_x + loss_y) / 2.0
